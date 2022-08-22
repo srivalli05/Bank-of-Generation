@@ -1,0 +1,133 @@
+import pyodbc
+
+conn = pyodbc.connect('Driver={SQL Server};'
+                      'Server=KARTHIK4\MSSQLSERVER01;'
+                      'Database=StudentWarehouse;'
+                      'Trusted_Connection=yes;')
+
+cursor = conn.cursor()
+cursor.execute('exec proc_customer_details')
+
+
+
+BULK insert dbo.tblStaging
+FROM 'C:\Users\61468\Desktop\tblStaging.csv'
+with
+  (
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = ';\n'
+   )
+
+
+
+
+
+
+-- Code Sample 3
+--=============================================================================
+-- begin of insert using merge
+insert into dbo.tblDimSCDType2Example
+( --Table and columns in which to insert the data
+  SourceSystemID,
+  Attribute1,
+  Attribute2,
+  Attribute3,
+  DimensionCheckSum,
+  EffectiveDate,
+  EndDate
+)
+-- Select the rows/columns to insert that are output from this merge statement 
+-- In this example, the rows to be inserted are the rows that have changed (UPDATE).
+select    
+SourceSystemID,
+Attribute1,
+Attribute2,
+Attribute3,
+DimensionCheckSum,
+EffectiveDate,
+EndDate
+from
+(
+  -- This is the beginning of the merge statement.
+  -- The target must be defined, in this example it is our slowly changing
+  -- dimension table
+  MERGE into dbo.tblDimSCDType2Example AS target
+  -- The source must be defined with the USING clause
+  USING 
+  (
+    -- The source is made up of the attribute columns from the staging table.
+    SELECT 
+    SourceSystemID,
+    Attribute1,
+    Attribute2,
+    Attribute3,
+    DimensionCheckSum
+    from dbo.tblStaging
+  ) AS source 
+  ( 
+    SourceSystemID,
+    Attribute1,
+    Attribute2,
+    Attribute3,
+    DimensionCheckSum
+  ) ON --We are matching on the SourceSystemID in the target table and the source table.
+  (
+    target.SourceSystemID = source.SourceSystemID
+  )
+  -- If the ID's match but the CheckSums are different, then the record has changed;
+  -- therefore, update the existing record in the target, end dating the record 
+  -- and set the CurrentRecord flag to N
+  WHEN MATCHED and target.DimensionCheckSum <> source.DimensionCheckSum 
+                                 and target.CurrentRecord='Y'
+  THEN 
+  UPDATE SET 
+    EndDate=getdate()-1, 
+    CurrentRecord='N', 
+    LastUpdated=getdate(), 
+    UpdatedBy=suser_sname()
+  -- If the ID's do not match, then the record is new;
+  -- therefore, insert the new record into the target using the values from the source.
+  WHEN NOT MATCHED THEN  
+  INSERT 
+  (
+    SourceSystemID, 
+    Attribute1,
+    Attribute2,
+    Attribute3,
+    DimensionCheckSum
+  )
+  VALUES 
+  (
+    source.SourceSystemID, 
+    source.Attribute1,
+    source.Attribute2,
+    source.Attribute3,
+    source.DimensionCheckSum
+  )
+  OUTPUT $action, 
+    source.SourceSystemID, 
+    source.Attribute1,
+    source.Attribute2,
+    source.Attribute3,
+    source.DimensionCheckSum,
+    getdate(),
+    '12/31/9999'
+) -- the end of the merge statement
+--The changes output below are the records that have changed and will need
+--to be inserted into the slowly changing dimension.
+as changes 
+(
+  action, 
+  SourceSystemID, 
+  Attribute1,
+  Attribute2,
+  Attribute3,
+  DimensionCheckSum,
+  EffectiveDate,
+  EndDate
+)
+where action='UPDATE';
+
+
+https://www.mssqltips.com/sqlservertip/2883/using-the-sql-server-merge-statement-to-process-type-2-slowly-changing-dimensions/
+
